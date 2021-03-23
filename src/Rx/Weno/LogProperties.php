@@ -11,7 +11,7 @@
 namespace OpenEMR\Rx\Weno;
 
 use Exception;
-use OpenEMR\Common\Crypto\CryptoGen;
+use OpenEMR\Common\Crypto;
 use OpenEMR\Common\Logging\EventAuditLogger;
 
 class LogProperties
@@ -47,15 +47,15 @@ class LogProperties
     public function __construct()
     {
         $this->container = new Container();
-        $this->cryptoGen = new CryptoGen();
+        $this->cryptoGen = new Crypto\CryptoGen();
         $this->method = "aes-256-cbc";
         $this->rxsynclog = $GLOBALS['OE_SITE_DIR'] . "/documents/logs_and_misc/logsync.csv";
         $this->enc_key = $this->cryptoGen->decryptStandard($GLOBALS['weno_encryption_key']);
         $this->key = substr(hash('sha256', $this->enc_key, true), 0, 32);
-        $this->iv = chr(0x1) . chr(0x2) . chr(0x3) . chr(0x5) . chr(0x7) . chr(0x9) . chr(0x0) . chr(0x1) . chr(0x2) . chr(0x3) . chr(0x5) . chr(0x7) . chr(0x9) . chr(0x0) . chr(0x1) . chr(0x2);
+        $this->iv = chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0);
         $this->provider = $this->container->getTransmitproperties();
     }
-
+    
     /**
      * @return string
      */
@@ -77,7 +77,7 @@ class LogProperties
         ];
         $plaintext = json_encode($p);                //json encode email and password
         if ($this->enc_key && $md5) {
-            return base64_encode(openssl_encrypt($plaintext, $this->method, $this->key, OPENSSL_RAW_DATA, $this->iv));
+            return base64_encode(openssl_encrypt($plaintext, $this->method, $this->key, OPENSSL_RAW_DATA, $this->iv));;
         } else {
             return "error";
         }
@@ -97,8 +97,8 @@ class LogProperties
             "MD5Password" => $md5
         ];
         $plaintext = json_encode($p);                //json encode email and password
-        if ($this->enc_key && $md5) {
-            return base64_encode(openssl_encrypt($plaintext, $this->method, $this->key, OPENSSL_RAW_DATA, $this->iv));
+       if ($this->enc_key && $md5) {
+            return base64_encode(openssl_encrypt($plaintext, $this->method, $this->key, OPENSSL_RAW_DATA, $this->iv));;
         } else {
             return "error";
         }
@@ -107,19 +107,19 @@ class LogProperties
     public function insertPrescriptions(): string
     {
         $sql = 'INSERT INTO prescriptions SET '
-            . 'id = ?, '
-            . 'active = ?, '
-            . 'date_added = ?, '
-            . 'patient_id = ?, '
-            . 'drug = ?, '
-            . 'form = ?, '
-            . 'quantity = ?, '
-            . 'refills = ?, '
-            . 'substitute = ?,'
-            . 'note = ?, '
-            . 'rxnorm_drugcode = ?, '
-            . 'external_id = ?, '
-            . 'indication =? ';
+        . 'id = ?, '
+        . 'active = ?, '
+        . 'date_added = ?, '
+        . 'patient_id = ?, '
+        . 'drug = ?, '
+        . 'form = ?, '
+        . 'quantity = ?, '
+        . 'refills = ?, '
+        . 'substitute = ?,'
+        . 'note = ?, '
+        . 'rxnorm_drugcode = ?, '
+        . 'external_id = ?, '
+        . 'indication =? ';
 
         $values = [
             $this->id,
@@ -147,7 +147,7 @@ class LogProperties
     public function doesLogFileExist()
     {
         if (file_exists($this->rxsynclog)) {
-            return date("F d Y", filemtime($this->rxsynclog));
+            return date ("F d Y", filemtime($this->rxsynclog));
         } else {
             return false;
         }
@@ -162,8 +162,7 @@ class LogProperties
 
     public function logSync()
     {
-        $provider_info = $this->provider->getProviderEmail();
-
+        $email = $this->provider->getProviderEmail();
         /**
          * checks to see if the file exist and if it does was it put there today?
          * The idea behind this is to automate the log information download and import into the database.
@@ -180,8 +179,8 @@ class LogProperties
                 echo xlt("Cipher failure check encryption key");
                 exit;
             }
-            //**warning** do not add urlencode to  $provider_info['email'] per Weno design
-            $urlOut = $syncLogs . $provider_info['email'] . "&data=" . urlencode($logurlparam);
+
+            $urlOut = $syncLogs . $email['email'] . "&data=" . urlencode($logurlparam);
 
             $ch = curl_init($urlOut);
             curl_setopt($ch, CURLOPT_TIMEOUT, 200);
