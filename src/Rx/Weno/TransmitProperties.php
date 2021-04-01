@@ -12,7 +12,7 @@
 
 namespace OpenEMR\Rx\Weno;
 
-use OpenEMR\Common\Crypto;
+use OpenEMR\Common\Crypto\CryptoGen;
 
 class TransmitProperties
 {
@@ -23,14 +23,17 @@ class TransmitProperties
     private $locid;
     private $vitals;
     private $subscriber;
+    private $pid;
     private $ncpdp;
+    private $cryptoGen;
 
     /**
      * AdminProperties constructor.
      */
     public function __construct()
     {
-                   $this->ncpdp = $this->getPharmacy();
+             $this->cryptoGen = new CryptoGen();
+                 $this->ncpdp = $this->getPharmacy();
                 $this->vitals = $this->getVitals();
                $this->patient = $this->getPatientInfo();
         $this->provider_email = $this->getProviderEmail();
@@ -38,7 +41,6 @@ class TransmitProperties
                  $this->locid = $this->getFacilityInfo();
                $this->payload = $this->createJsonObject();
             $this->subscriber = $this->getSubscriber();
-
     }
 
     /**
@@ -54,46 +56,57 @@ class TransmitProperties
             $mode = 'N';
         }
         $gender = $this->patient['sex'];
-        $heighDate = explode (" ", $this->vitals['date']);
+        $heighDate = explode(" ", $this->vitals['date']);
         if ($this->subscriber == 'self') {
             $relationship = 'Y';
         } else {
-            $relationship = 'N';
+            $relationship = 'Y';
         }
         //create json array
-        $wenObj = [
-                  'UserEmail' => $this->provider_email['email'],
-                'MD5Password' => md5($this->provider_pass),
-                  "LocationID" => $this->locid['weno_id'],
-                 "TestPatient" => $mode,
-                 'PatientType' => 'Human',
-                'OrgPatientID' => $this->patient['pid'],
-                    'LastName' => $this->patient['lname'],
-                   'FirstName' => $this->patient['fname'],
-                  'MiddleName' => $this->patient['mname'],
-                      'Prefix' => 'NA',
-                      'Suffix' => 'NA',
-                      "Gender" => $gender[0],
-                 "DateOfBirth" => $this->patient['dob'],
-                "AddressLine1" => $this->patient['street'],
-                "AddressLine2" => "NA",
-                        "City" => $this->patient['city'],
-                       "State" => $this->patient['state'],
-                  "PostalCode" => $this->patient['postal_code'],
-                 "CountryCode" => "US",
-                "PrimaryPhone" => $this->patient['phone_cell'],
-                 "SupportsSMS" => "Y",
-                "PatientEmail" => $this->patient['email'],
-               "PatientHeight" => $this->vitals['height'],
-               "PatientWeight" => $this->vitals['weight'],
- "HeightWeightObservationDate" => $heighDate[0],
-"ResponsiblePartySameAsPatient" => 'Y',
-              "PatientLocation" => "Home",
-         "PrimaryPharmacyNCPCP" => $this->ncpdp,
-     "AlternativePharmacyNCPCP" => $this->ncpdp
-        ];
-        $jObj = json_encode($wenObj);
-        return $jObj;
+        $wenObj = [];
+        array_merge(
+            $wenObj,
+            $wenObj['UserEmail'] = $this->provider_email['email'],
+            $wenObj['MD5Password'] = md5($this->provider_pass),
+            $wenObj['LocationID'] = $this->locid['weno_id'],
+            $wenObj['TestPatient'] = $mode,
+            $wenObj['PatientType'] = 'Human',
+            $wenObj['OrgPatientID'] = $this->patient['pid'],
+            $wenObj['LastName'] = $this->patient['lname']
+        );
+        // optional fields (added only if they have a value)
+        if (isset($this->patient['mname'])) {
+            array_merge($wenObj, $wenObj['MiddleName'] = $this->patient['mname']);
+        };
+        array_merge(
+            $wenObj,
+            $wenObj['FirstName'] = $this->patient['fname'],
+            $wenObj['Gender'] = $gender[0],
+            $wenObj['DateOfBirth'] = $this->patient['dob'],
+            $wenObj['AddressLine1'] = $this->patient['street'],
+            $wenObj['City'] = $this->patient['city'],
+            $wenObj['State'] = $this->patient['state'],
+            $wenObj['PostalCode'] = $this->patient['postal_code'],
+            $wenObj['CountryCode'] = "US",
+            $wenObj['PrimaryPhone'] = str_replace("-", "", $this->patient['phone_cell']),
+            $wenObj['SupportsSMS'] = 'Y'
+        );
+        // optional fields (added only if they have a value)
+        if (isset($this->patient['email'])) {
+            array_merge($wenObj, $wenObj['PatientEmail'] = $this->patient['email']);
+        };
+        array_merge(
+            $wenObj,
+            $wenObj['PatientHeight'] = substr($this->vitals['height'], 0, -3),
+            $wenObj['PatientWeight'] = substr($this->vitals['weight'], 0, -3),
+            $wenObj['HeightWeightObservationDate'] = $heighDate[0],
+            $wenObj["ResponsiblePartySameAsPatient"] = $relationship,
+            $wenObj['PatientLocation'] = "Home",
+            $wenObj['PrimaryPharmacyNCPCP'] = $this->ncpdp,
+            $wenObj['AlternativePharmacyNCPCP'] = $this->ncpdp,
+
+    );
+        return json_encode($wenObj);
     }
 
     /**
@@ -115,7 +128,7 @@ class TransmitProperties
      */
     public function getFacilityInfo()
     {
-        $locid = sqlQuery("select name, street, city, state, postal_code, phone, fax, weno_id from facility where id = ?", [isset($_SESSION['facilityId'])]);
+        $locid = sqlQuery("select name, street, city, state, postal_code, phone, fax, weno_id from facility where id = ?", [$_SESSION['facilityId']]);
 
         if (empty($locid['weno_id'])) {
             //if not in an encounter then get the first facility location id as default
@@ -136,17 +149,39 @@ class TransmitProperties
      */
     private function getPatientInfo()
     {
-        //get patient data
-        $patient = sqlQuery("select title, fname, lname, mname, street, state, city, email, phone_cell, postal_code, dob, sex, pid from patient_data where pid=?", [isset($_SESSION['pid'])]);
-        if (empty($patient['fname']) ||
-            empty($patient['lname']) ||
-            empty($patient['dob']) ||
-            empty($patient['sex']) ||
-            empty($patient['postal_code']) ||
-            empty($patient['street']) ||
-            empty($patient['email'])
-        ) {
-            echo xlt('Patient data is incomplete phone or ') .", " . xlt('first last name') .", " . xlt('gender email').", " . xlt('zip code') .", " . xlt('date of birth or address');
+        //get patient data if in an encounter
+        //Since the transmitproperties is called in the logproperties
+        //need to check to see if in an encounter or not. Patient data is not required to view the Weno log
+        if (empty($_SESSION['encounter'])) {
+            die("please select an encounter");
+        }
+        $missing = 0;
+        $patient = sqlQuery("select title, fname, lname, mname, street, state, city, email, phone_cell, postal_code, dob, sex, pid from patient_data where pid=?", [$_SESSION['pid']]);
+        if (empty($patient['fname'])) {
+            echo xlt("First Name Missing") . "<br>";
+            ++$missing;
+        }
+        if (empty($patient['lname'])) {
+            echo xlt("Last Name Missing")  . "<br>";
+            ++$missing;
+        }
+        if (empty($patient['dob'])) {
+            echo xlt("Date of Birth Missing") . "<br>";
+            ++$missing;
+        }
+        if (empty($patient['sex'])) {
+            echo xlt("Gender Missing") . "<br>";
+            ++$missing;
+        }
+        if (empty($patient['postal_code'])) {
+            echo xlt("Zip Code Missing") . "<br>";
+            ++$missing;
+        }
+        if (empty($patient['street'])) {
+            echo xlt("Street Address incomplete Missing") . "<br>";
+            ++$missing;
+        }
+        if ($missing > 0) {
             exit;
         }
         return $patient;
@@ -159,17 +194,13 @@ class TransmitProperties
     public function cipherpayload()
     {
         $cipher = "aes-256-cbc"; // AES 256 CBC cipher
-        $cryptoGen = new Crypto\CryptoGen();
-        $enc_key = $cryptoGen->decryptStandard($GLOBALS['weno_encryption_key']);
-        //$enc_key = $GLOBALS['weno_encryption_key']; //version 5.0.x
-        if ($enc_key)
-        {
+        $enc_key = $this->cryptoGen->decryptStandard($GLOBALS['weno_encryption_key']);
+        if ($enc_key) {
             $key = substr(hash('sha256', $enc_key, true), 0, 32);
             $iv = chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0) . chr(0x0);
             $ciphertext = base64_encode(openssl_encrypt($this->payload, $cipher, $key, OPENSSL_RAW_DATA, $iv));
             return $ciphertext;
-        }
-        else {
+        } else {
             return "error";
         }
     }
@@ -179,14 +210,14 @@ class TransmitProperties
      */
     public function getProviderPassword()
     {
-        $cryptoGen = new Crypto\CryptoGen();
         $uid = $_SESSION['authUserID'];
         $sql = "select setting_value from user_settings where setting_user = ? and setting_label = 'global:weno_provider_password'";
         $prov_pass = sqlQuery($sql, [$uid]);
-        if ($prov_pass['setting_value']) {
-            return $cryptoGen->decryptStandard($prov_pass['setting_value']);
+        if (!empty($prov_pass['setting_value'])) {
+            return $this->cryptoGen->decryptStandard($prov_pass['setting_value']);
         } else {
-            echo xlt('Password is missing'); die;
+            echo xlt('Provider Password is missing');
+            die;
         }
     }
 
